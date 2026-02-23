@@ -1,0 +1,30 @@
+{
+  "name": "mushroom-chat-bot",
+  "version": "1.0.0",
+  "description": "Дед Мухомор — ворчливый бот для группового чата магазина биодобавок",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "grammy",
+    "gemini"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "grammy": "^1.35.0",
+    "@google/generative-ai": "^0.24.0",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "tsx": "^4.19.2",
+    "@types/node": "^22.12.0"
+  }
+}
