@@ -1,5 +1,5 @@
 import { Context } from 'grammy';
-import { REPLY_CHANCE, COOLDOWN_MS } from '../config/constants';
+import { REPLY_CHANCE, COOLDOWN_MS, ALLOWED_CHAT_USERNAMES } from '../config/constants';
 import { addMessage, getMessages, BufferedMessage } from '../services/messageBuffer';
 import { askGemini } from '../services/gemini';
 
@@ -52,6 +52,18 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
     if (!chat) return;
     if (chat.type !== 'group' && chat.type !== 'supergroup') return;
 
+    // Проверяем юзернейм чата — если не в списке разрешённых, уходим
+    const chatUsername = 'username' in chat ? chat.username : undefined;
+    if (!chatUsername || !ALLOWED_CHAT_USERNAMES.includes(chatUsername)) {
+        console.log(`🚪 Неверифицированный чат (${chatUsername ?? 'без username'}), ухожу из ${chat.id}`);
+        try {
+            await ctx.api.leaveChat(chat.id);
+        } catch (error) {
+            console.error(`❌ Не удалось покинуть чат ${chat.id}:`, error);
+        }
+        return;
+    }
+
     const chatId = chat.id;
     const botUsername = process.env.BOT_USERNAME ?? '';
     const botId = ctx.me.id;
@@ -69,7 +81,7 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
         : false;
 
     // Ключевые слова, по которым дед понимает, что обращаются к нему
-    const triggerWords = ['дед', 'дедуля', 'дедуль', 'дедушка', 'дедуган'];
+    const triggerWords = ['дед', 'мухомор', 'дедуля', 'дедуль', 'дедушка', 'дедуган'];
     const lowerText = text.toLowerCase();
     const isDirectAddress = triggerWords.some((word) => lowerText.includes(word));
 
