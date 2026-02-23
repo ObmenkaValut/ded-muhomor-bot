@@ -25,4 +25,4 @@ export const GEMINI_MODEL = 'gemini-2.5-flash-lite';
 export const GEMINI_TEMPERATURE = 1.5;
 
 /** Разрешённые юзернеймы чатов (без @) */
-export const ALLOWED_CHAT_USERNAMES = ['MUHOMORYE'];
+export const ALLOWED_CHAT_USERNAMES = ['MUHOMORYE', 'fwfwfwfwfw1'];
