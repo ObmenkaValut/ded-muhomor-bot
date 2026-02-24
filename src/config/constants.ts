@@ -22,7 +22,7 @@ export const GEMINI_TIMEOUT_MS = 15_000;
 export const GEMINI_MODEL = 'gemini-2.5-flash-lite';
 
 /** Температура генерации Gemini */
-export const GEMINI_TEMPERATURE = 1.2;
+export const GEMINI_TEMPERATURE = 1;
 
 /** Разрешённые юзернеймы чатов (без @) */
 export const ALLOWED_CHAT_USERNAMES = ['MUHOMORYE', 'fwfwfwfwfw1'];
