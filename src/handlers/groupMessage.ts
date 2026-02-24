@@ -132,7 +132,7 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
 
             // Добавляем свой ответ в буфер, чтобы Gemini видел полный контекст
             addMessage(chatId, {
-                name: 'Дед Мухомор',
+                name: 'Пантелеймон Грибович',
                 text: geminiResult.text,
                 timestamp: Date.now(),
                 isReplyToBot: false,
