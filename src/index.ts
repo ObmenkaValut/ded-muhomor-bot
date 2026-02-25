@@ -32,7 +32,7 @@ async function main(): Promise<void> {
 
     // Graceful shutdown
     const shutdown = () => {
-        console.log('🛑 Дед Мухомор ложится спать...');
+        console.log('🛑 Дед Пенькович ложится спать...');
         clearInterval(cleanupTimer);
         bot.stop();
     };
@@ -41,7 +41,7 @@ async function main(): Promise<void> {
     process.once('SIGTERM', shutdown);
 
     // Запуск long polling
-    console.log('🍄 Дед Мухомор проснулся!');
+    console.log('🍄 Дед Пенькович проснулся!');
     await bot.start({
         allowed_updates: [],
     });
