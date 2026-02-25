@@ -87,12 +87,24 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
 
     const mustReply = isReplyToBot || isMention || isDirectAddress;
 
+    // Определяем, на чьё сообщение это реплай
+    const replyMsg = ctx.message.reply_to_message;
+    let replyToName: string | undefined;
+    if (replyMsg?.from) {
+        if (replyMsg.from.id === botId) {
+            replyToName = 'Дед Пенькович';
+        } else {
+            replyToName = replyMsg.from.first_name || replyMsg.from.username || undefined;
+        }
+    }
+
     // Добавляем сообщение в буфер
     const bufferedMessage: BufferedMessage = {
         name: senderName,
         text,
         timestamp: Date.now(),
         isReplyToBot: mustReply,
+        replyTo: replyToName,
     };
     addMessage(chatId, bufferedMessage);
 
@@ -121,15 +133,19 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
     void ctx.api.sendChatAction(chatId, 'typing').catch(() => { });
 
     const geminiResult = await askGemini(messages, mustReply);
-    clearInterval(typingInterval);
-
 
     if (geminiResult.reply && geminiResult.text) {
         // Проверяем кулдаун ещё раз (мог истечь пока ждали Gemini)
         if (!mustReply && isOnCooldown(chatId)) {
+            clearInterval(typingInterval);
             console.log(`🤫 Молчу (кулдаун после Gemini) в чате ${chatId}`);
             return;
         }
+
+        // Задержка 3–6 сек для эмуляции живого человека
+        const delay = 3_000 + Math.random() * 3_000;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        clearInterval(typingInterval);
 
         console.log(`🍄 Отвечаю в чате ${chatId}: "${geminiResult.text}"`);
         updateCooldown(chatId);
@@ -150,6 +166,7 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
             console.error(`❌ Ошибка отправки сообщения в чат ${chatId}:`, error);
         }
     } else {
+        clearInterval(typingInterval);
         console.log(`🤫 Молчу (Gemini решил) в чате ${chatId}`);
     }
 }

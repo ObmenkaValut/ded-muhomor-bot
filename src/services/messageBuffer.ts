@@ -10,6 +10,8 @@ export interface BufferedMessage {
     timestamp: number;
     /** Является ли реплаем на сообщение бота */
     isReplyToBot: boolean;
+    /** Имя автора сообщения, на которое ответили (если реплай) */
+    replyTo?: string;
 }
 
 /** Хранилище последних N сообщений для каждого чата (in-memory) */
