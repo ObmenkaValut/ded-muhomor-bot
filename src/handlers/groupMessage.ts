@@ -111,9 +111,18 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
         }
     }
 
-    // Вызываем Gemini
+    // Вызываем Gemini, пока показываем "Печатает..."
     const messages = getMessages(chatId);
+
+    // Telegram сбрасывает "Печатает..." через 5 сек — обновляем каждые 4
+    const typingInterval = setInterval(() => {
+        ctx.api.sendChatAction(chatId, 'typing').catch(() => { });
+    }, 4_000);
+    void ctx.api.sendChatAction(chatId, 'typing').catch(() => { });
+
     const geminiResult = await askGemini(messages, mustReply);
+    clearInterval(typingInterval);
+
 
     if (geminiResult.reply && geminiResult.text) {
         // Проверяем кулдаун ещё раз (мог истечь пока ждали Gemini)
@@ -132,7 +141,7 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
 
             // Добавляем свой ответ в буфер, чтобы Gemini видел полный контекст
             addMessage(chatId, {
-                name: 'Пантелеймон Грибович',
+                name: 'Дед Пенькович',
                 text: geminiResult.text,
                 timestamp: Date.now(),
                 isReplyToBot: false,

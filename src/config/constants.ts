@@ -19,10 +19,10 @@ export const MAX_MESSAGE_AGE_MS = 2 * 60 * 60 * 1_000; // 2 часа
 export const GEMINI_TIMEOUT_MS = 15_000;
 
 /** Модель Gemini */
-export const GEMINI_MODEL = 'gemini-2.5-flash-lite';
+export const GEMINI_MODEL = 'gemini-2.5-flash';
 
 /** Температура генерации Gemini */
-export const GEMINI_TEMPERATURE = 1;
+export const GEMINI_TEMPERATURE = 0.6;
 
 /** Разрешённые юзернеймы чатов (без @) */
 export const ALLOWED_CHAT_USERNAMES = ['MUHOMORYE', 'fwfwfwfwfw1'];
