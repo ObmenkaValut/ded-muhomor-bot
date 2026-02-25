@@ -13,12 +13,7 @@ const lastReplyTime = new Map<number, number>();
 function isOnCooldown(chatId: number): boolean {
     const now = Date.now();
     const lastTime = lastReplyTime.get(chatId) ?? 0;
-
-    if (now - lastTime < COOLDOWN_MS) {
-        return true;
-    }
-
-    return false;
+    return now - lastTime < COOLDOWN_MS;
 }
 
 /** Обновляет timestamp последнего ответа */
@@ -55,11 +50,11 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
     // Проверяем юзернейм чата — если не в списке разрешённых, уходим
     const chatUsername = 'username' in chat ? chat.username : undefined;
     if (!chatUsername || !ALLOWED_CHAT_USERNAMES.includes(chatUsername)) {
-        console.log(`🚪 Неверифицированный чат (${chatUsername ?? 'без username'}), ухожу из ${chat.id}`);
+        console.log(`[skip] Неверифицированный чат (${chatUsername ?? 'без username'}), ухожу из ${chat.id}`);
         try {
             await ctx.api.leaveChat(chat.id);
         } catch (error) {
-            console.error(`❌ Не удалось покинуть чат ${chat.id}:`, error);
+            console.error(`[error] Не удалось покинуть чат ${chat.id}:`, error);
         }
         return;
     }
@@ -110,7 +105,7 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
 
     // Проверяем кулдаун (пропускаем только для mustReply)
     if (!mustReply && isOnCooldown(chatId)) {
-        console.log(`🤫 Молчу (кулдаун) в чате ${chatId}`);
+        console.log(`[skip] Молчу (кулдаун) в чате ${chatId}`);
         return;
     }
 
@@ -118,7 +113,7 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
     if (!mustReply) {
         const roll = Math.random();
         if (roll > REPLY_CHANCE) {
-            console.log(`🤫 Молчу (рандом ${(roll * 100).toFixed(0)}% > ${REPLY_CHANCE * 100}%) в чате ${chatId}`);
+            console.log(`[skip] Молчу (рандом ${(roll * 100).toFixed(0)}% > ${REPLY_CHANCE * 100}%) в чате ${chatId}`);
             return;
         }
     }
@@ -138,7 +133,7 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
         // Проверяем кулдаун ещё раз (мог истечь пока ждали Gemini)
         if (!mustReply && isOnCooldown(chatId)) {
             clearInterval(typingInterval);
-            console.log(`🤫 Молчу (кулдаун после Gemini) в чате ${chatId}`);
+            console.log(`[skip] Молчу (кулдаун после Gemini) в чате ${chatId}`);
             return;
         }
 
@@ -147,7 +142,7 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
         await new Promise((resolve) => setTimeout(resolve, delay));
         clearInterval(typingInterval);
 
-        console.log(`🍄 Отвечаю в чате ${chatId}: "${geminiResult.text}"`);
+        console.log(`[reply] Отвечаю в чате ${chatId}: "${geminiResult.text}"`);
         updateCooldown(chatId);
 
         try {
@@ -163,10 +158,10 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
                 isReplyToBot: false,
             });
         } catch (error) {
-            console.error(`❌ Ошибка отправки сообщения в чат ${chatId}:`, error);
+            console.error(`[error] Ошибка отправки сообщения в чат ${chatId}:`, error);
         }
     } else {
         clearInterval(typingInterval);
-        console.log(`🤫 Молчу (Gemini решил) в чате ${chatId}`);
+        console.log(`[skip] Молчу (Gemini решил) в чате ${chatId}`);
     }
 }

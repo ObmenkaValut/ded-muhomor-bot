@@ -61,7 +61,7 @@ function cleanupOldMessages(): void {
     }
 
     if (totalCleaned > 0) {
-        console.log(`🧹 Очистка буфера: удалено ${totalCleaned} устаревших сообщений`);
+        console.log(`[cleanup] Очистка буфера: удалено ${totalCleaned} устаревших сообщений`);
     }
 }
 

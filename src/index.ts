@@ -23,7 +23,7 @@ async function main(): Promise<void> {
 
     // Глобальный обработчик ошибок
     bot.catch((err) => {
-        console.error('❌ Ошибка бота:', err.error);
+        console.error('[error] Ошибка бота:', err.error);
         console.error('Контекст обновления:', err.ctx?.update?.update_id);
     });
 
@@ -32,7 +32,7 @@ async function main(): Promise<void> {
 
     // Graceful shutdown
     const shutdown = () => {
-        console.log('🛑 Дед Пенькович ложится спать...');
+        console.log('[stop] Дед Пенькович ложится спать...');
         clearInterval(cleanupTimer);
         bot.stop();
     };
@@ -41,13 +41,13 @@ async function main(): Promise<void> {
     process.once('SIGTERM', shutdown);
 
     // Запуск long polling
-    console.log('🍄 Дед Пенькович проснулся!');
+    console.log('[start] Дед Пенькович проснулся!');
     await bot.start({
         allowed_updates: [],
     });
 }
 
 main().catch((error) => {
-    console.error('💀 Фатальная ошибка при запуске:', error);
+    console.error('[fatal] Фатальная ошибка при запуске:', error);
     process.exit(1);
 });

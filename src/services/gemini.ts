@@ -85,7 +85,7 @@ function buildUserPrompt(messages: BufferedMessage[], mustReply: boolean): strin
  * Если не удалось — возвращает { reply: false }.
  */
 function parseGeminiResponse(raw: string): GeminiReply {
-    console.log(`🤖 Сырой ответ Gemini: ${raw}`);
+    console.log(`[gemini] Сырой ответ: ${raw}`);
 
     try {
         const parsed: unknown = JSON.parse(raw);
@@ -93,8 +93,7 @@ function parseGeminiResponse(raw: string): GeminiReply {
         if (
             typeof parsed === 'object' &&
             parsed !== null &&
-            'reply' in parsed &&
-            typeof (parsed as GeminiReply).reply === 'boolean'
+            'reply' in parsed
         ) {
             const result = parsed as GeminiReply;
             if (result.reply && typeof result.text === 'string' && result.text.trim().length > 0) {
@@ -103,17 +102,17 @@ function parseGeminiResponse(raw: string): GeminiReply {
             return { reply: false };
         }
 
-        console.warn('⚠️ Gemini вернул невалидный JSON-формат:', raw);
+        console.warn('[warn] Gemini вернул невалидный JSON-формат:', raw);
         return { reply: false };
     } catch {
         // Фоллбэк: пробуем извлечь текст регуляркой
         const textMatch = raw.match(/"text"\s*:\s*"([^"]+)"/);
         if (textMatch) {
-            console.log('🔧 Извлёк текст из сломанного JSON через regex');
+            console.log('[fallback] Извлёк текст из сломанного JSON через regex');
             return { reply: true, text: textMatch[1].trim() };
         }
 
-        console.warn('⚠️ Не удалось распарсить ответ Gemini:', raw);
+        console.warn('[warn] Не удалось распарсить ответ Gemini:', raw);
         return { reply: false };
     }
 }
@@ -139,7 +138,7 @@ export async function askGemini(
 ): Promise<GeminiReply> {
     const ai = getGenAI();
     const userPrompt = buildUserPrompt(messages, mustReply);
-    console.log(`📋 Контекст для Gemini:\n${userPrompt}\n---`);
+    console.log(`[gemini] Контекст:\n${userPrompt}\n---`);
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
@@ -158,15 +157,15 @@ export async function askGemini(
             const text = result.text ?? '';
             return parseGeminiResponse(text);
         } catch (error) {
-            console.error(`❌ Попытка ${attempt}/${MAX_RETRIES} — ошибка Gemini API:`, error);
+            console.error(`[error] Попытка ${attempt}/${MAX_RETRIES} — ошибка Gemini API:`, error);
 
             if (attempt < MAX_RETRIES) {
-                console.log(`🔄 Повторный запрос через ${RETRY_DELAY_MS / 1000} сек...`);
+                console.log(`[retry] Повторный запрос через ${RETRY_DELAY_MS / 1000} сек...`);
                 await sleep(RETRY_DELAY_MS);
             }
         }
     }
 
-    console.error('💀 Все попытки исчерпаны, молчу.');
+    console.error('[fatal] Все попытки исчерпаны, молчу.');
     return { reply: false };
 }
