@@ -44,6 +44,7 @@ async function main(): Promise<void> {
     console.log('[start] Дед Пенькович проснулся!');
     await bot.start({
         allowed_updates: [],
+        drop_pending_updates: true,
     });
 }
 

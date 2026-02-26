@@ -76,9 +76,12 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
         : false;
 
     // Ключевые слова, по которым дед понимает, что обращаются к нему
+    // Не считаем триггером, если это реплай на чужое сообщение (не на бота)
+    const isReplyToOther = ctx.message.reply_to_message?.from?.id !== undefined
+        && ctx.message.reply_to_message.from.id !== botId;
     const triggerWords = ['дед', 'мухомор', 'дедуля', 'дедуль', 'дедушка', 'дедуган'];
     const lowerText = text.toLowerCase();
-    const isDirectAddress = triggerWords.some((word) => lowerText.includes(word));
+    const isDirectAddress = !isReplyToOther && triggerWords.some((word) => lowerText.includes(word));
 
     const mustReply = isReplyToBot || isMention || isDirectAddress;
 
