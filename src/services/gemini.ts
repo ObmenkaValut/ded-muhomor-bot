@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { GEMINI_MODEL, GEMINI_TEMPERATURE } from '../config/constants';
 import { BufferedMessage } from './messageBuffer';
+import { trackTokens } from './tokenCounter';
 
 /** Структура ответа от Gemini */
 interface GeminiReply {
@@ -67,8 +68,12 @@ function buildUserPrompt(messages: BufferedMessage[], mustReply: boolean): strin
 function parseGeminiResponse(raw: string): GeminiReply {
     console.log(`[gemini] Сырой ответ: ${raw}`);
 
+    // С thinking модель возвращает текст — ищем JSON-блок внутри
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : raw;
+
     try {
-        const parsed: unknown = JSON.parse(raw);
+        const parsed: unknown = JSON.parse(jsonStr);
 
         if (
             typeof parsed === 'object' &&
@@ -128,11 +133,21 @@ export async function askGemini(
                 config: {
                     systemInstruction: SYSTEM_PROMPT,
                     temperature: GEMINI_TEMPERATURE,
-                    maxOutputTokens: 512,
-                    responseMimeType: 'application/json',
-                    thinkingConfig: { thinkingBudget: 0 },
+                    maxOutputTokens: 1024,
+                    thinkingConfig: { thinkingBudget: 512 },
                 },
             });
+
+            // Отслеживаем использованные токены
+            const usage = result.usageMetadata;
+            if (usage) {
+                trackTokens(
+                    usage.promptTokenCount ?? 0,
+                    usage.candidatesTokenCount ?? 0,
+                    usage.thoughtsTokenCount ?? 0,
+                );
+                console.log(`[tokens] in:${usage.promptTokenCount} out:${usage.candidatesTokenCount} think:${usage.thoughtsTokenCount}`);
+            }
 
             const text = result.text ?? '';
             return parseGeminiResponse(text);
