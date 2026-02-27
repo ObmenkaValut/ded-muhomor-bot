@@ -90,11 +90,12 @@ function parseGeminiResponse(raw: string): GeminiReply {
         console.warn('[warn] Gemini вернул невалидный JSON-формат:', raw);
         return { reply: false };
     } catch {
-        // Фоллбэк: пробуем извлечь текст регуляркой
-        const textMatch = raw.match(/"text"\s*:\s*"([^"]+)"/);
+        // (?:[^"\\]|\\.)* — корректно обрабатывает экранированные кавычки внутри строки
+        const textMatch = raw.match(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/);
         if (textMatch) {
             console.log('[fallback] Извлёк текст из сломанного JSON через regex');
-            return { reply: true, text: textMatch[1].trim() };
+            const text = textMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n').trim();
+            return { reply: true, text };
         }
 
         console.warn('[warn] Не удалось распарсить ответ Gemini:', raw);
