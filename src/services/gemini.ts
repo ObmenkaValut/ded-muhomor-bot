@@ -225,27 +225,34 @@ export async function askGemini(
 export async function checkProfanity(text: string): Promise<boolean> {
     if (!text.trim()) return false;
     const ai = getGenAI();
-    try {
-        const result = await ai.models.generateContent({
-            model: MODERATION_MODEL,
-            contents: `Проверь этот текст на наличие прямого мата или грубых матерных оскорблений. Ответь строго JSON: {"isProfane": true} или {"isProfane": false}.\nТекст: "${text}"`,
-            config: {
-                temperature: 0.0,
-                maxOutputTokens: 30,
-                responseMimeType: 'application/json',
-            },
-        });
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            const result = await ai.models.generateContent({
+                model: MODERATION_MODEL,
+                contents: `Проверь этот текст на наличие прямого мата или грубых матерных оскорблений. Ответь строго JSON: {"isProfane": true} или {"isProfane": false}.\nТекст: "${text}"`,
+                config: {
+                    temperature: 0.0,
+                    maxOutputTokens: 15,
+                    responseMimeType: 'application/json',
+                },
+            });
 
-        const usage = result.usageMetadata;
-        if (usage) {
-            trackTokens(usage.promptTokenCount ?? 0, usage.candidatesTokenCount ?? 0, 0);
+            const usage = result.usageMetadata;
+            if (usage) {
+                trackTokens(usage.promptTokenCount ?? 0, usage.candidatesTokenCount ?? 0, 0);
+            }
+
+            const raw = result.text ?? '';
+            const parsed = JSON.parse(raw);
+            return !!parsed.isProfane;
+        } catch (e) {
+            console.error(`[error] Попытка ${attempt}/${MAX_RETRIES} — ошибка ИИ-проверки на мат:`, e);
+            if (attempt < MAX_RETRIES) {
+                console.log(`[retry] Повторная проверка мата через ${RETRY_DELAY_MS / 1000} сек...`);
+                await sleep(RETRY_DELAY_MS);
+            }
         }
-
-        const raw = result.text ?? '';
-        const parsed = JSON.parse(raw);
-        return !!parsed.isProfane;
-    } catch (e) {
-        console.error('[error] Ошибка ИИ-проверки на мат:', e);
-        return false;
     }
+    console.error('[fatal] Все попытки проверки мата исчерпаны, сообщение пропущено деду.');
+    return false;
 }
