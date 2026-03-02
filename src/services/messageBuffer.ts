@@ -8,8 +8,8 @@ export interface BufferedMessage {
     text: string;
     /** Время получения (timestamp в мс) */
     timestamp: number;
-    /** Является ли реплаем на сообщение бота */
-    isReplyToBot: boolean;
+    /** Сообщение адресовано боту (реплай, упоминание, триггер-слово) */
+    addressedToBot: boolean;
     /** Имя автора сообщения, на которое ответили (если реплай) */
     replyTo?: string;
 }

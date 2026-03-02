@@ -101,7 +101,7 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
         name: senderName,
         text,
         timestamp: Date.now(),
-        isReplyToBot: mustReply,
+        addressedToBot: mustReply,
         replyTo: replyToName,
     };
     addMessage(chatId, bufferedMessage);
@@ -158,7 +158,7 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
                 name: 'Дед Пенькович',
                 text: geminiResult.text,
                 timestamp: Date.now(),
-                isReplyToBot: false,
+                addressedToBot: false,
             });
         } catch (error) {
             console.error(`[error] Ошибка отправки сообщения в чат ${chatId}:`, error);

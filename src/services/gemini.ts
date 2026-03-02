@@ -21,7 +21,11 @@ const SYSTEM_PROMPT = `Ты — Дед Пенькович, бот-персона
 
 Мат и оскорбления — это эмоция, не буквальный текст. Реагируй как ворчливый дед: коротко, ехидно, с достоинством. Не обыгрывай слова буквально.
 
-В истории чата каждое сообщение подписано именем автора. Если есть пометка [ответ для X] — значит человек отвечает конкретно X. Не путай людей, не повторяйся. История — это фон. Отвечай на последнее сообщение, не смешивай темы из разных сообщений.
+Формат истории чата:
+- «--- ФОН ЧАТА ---» — недавние сообщения для контекста. Не отвечай на них.
+- «--- ПОСЛЕДНЕЕ СООБЩЕНИЕ ---» — на это нужно отвечать.
+- «→ Дед Пенькович» означает реплай тебе, «→ Ваня» — реплай другому человеку.
+Не путай людей, не повторяйся.
 
 mustReply=true → отвечай. mustReply=false → только если есть что сказать, иначе {"reply": false}.
 Ответ — строго JSON: {"reply": false} или {"reply": true, "text": "..."}`;
@@ -42,15 +46,50 @@ function getGenAI(): GoogleGenAI {
 }
 
 /**
- * Формирует текст пользовательского сообщения из буфера.
+ * Мерджит подряд идущие сообщения от одного человека в одно.
+ * "привет" + "как дела" + "дед" → "привет / как дела / дед"
+ */
+function mergeConsecutiveMessages(messages: BufferedMessage[]): BufferedMessage[] {
+    if (messages.length === 0) return [];
+
+    const merged: BufferedMessage[] = [];
+    let current = { ...messages[0] };
+
+    for (let i = 1; i < messages.length; i++) {
+        const msg = messages[i];
+        if (msg.name === current.name && !msg.replyTo && !current.replyTo) {
+            // Тот же автор, не реплай — мерджим текст
+            current.text += ` / ${msg.text}`;
+            current.timestamp = msg.timestamp;
+            // Если хотя бы одно сообщение адресовано боту — помечаем
+            if (msg.addressedToBot) current.addressedToBot = true;
+        } else {
+            merged.push(current);
+            current = { ...msg };
+        }
+    }
+    merged.push(current);
+
+    return merged;
+}
+
+/**
+ * Форматирует одно сообщение для промпта.
+ * Пример: "Yevhenii → Дед Пенькович: дед привет"
+ */
+function formatMessage(msg: BufferedMessage): string {
+    const replyPart = msg.replyTo ? ` → ${msg.replyTo}` : '';
+    return `${msg.name}${replyPart}: ${msg.text}`;
+}
+
+/**
+ * Формирует текст пользовательского сообщения с разметкой.
  */
 function buildUserPrompt(messages: BufferedMessage[], mustReply: boolean): string {
-    const lines = messages.map((msg, index) => {
-        const isLast = index === messages.length - 1;
-        const suffix = isLast ? ' (последнее)' : '';
-        const replyPrefix = msg.replyTo ? ` [ответ для ${msg.replyTo}]` : '';
-        return `${msg.name}${replyPrefix}${suffix}: ${msg.text}`;
-    });
+    if (messages.length === 0) return '';
+
+    // Мерджим подряд идущие сообщения от одного человека
+    const merged = mergeConsecutiveMessages(messages);
 
     const now = new Date().toLocaleString('ru-RU', {
         timeZone: 'Europe/Moscow',
@@ -58,7 +97,22 @@ function buildUserPrompt(messages: BufferedMessage[], mustReply: boolean): strin
         timeStyle: 'short',
     });
 
-    return `Сейчас: ${now}\nmustReply: ${mustReply}\n\nПоследние сообщения чата:\n${lines.join('\n')}`;
+    // Последнее сообщение — отдельным блоком
+    const lastMsg = merged[merged.length - 1];
+    const backgroundMsgs = merged.slice(0, -1);
+
+    let prompt = `Сейчас: ${now}\nmustReply: ${mustReply}\n`;
+
+    if (backgroundMsgs.length > 0) {
+        prompt += '\n--- ФОН ЧАТА ---\n';
+        prompt += backgroundMsgs.map(formatMessage).join('\n');
+        prompt += '\n';
+    }
+
+    prompt += '\n--- ПОСЛЕДНЕЕ СООБЩЕНИЕ ---\n';
+    prompt += formatMessage(lastMsg);
+
+    return prompt;
 }
 
 /**
@@ -68,12 +122,8 @@ function buildUserPrompt(messages: BufferedMessage[], mustReply: boolean): strin
 function parseGeminiResponse(raw: string): GeminiReply {
     console.log(`[gemini] Сырой ответ: ${raw}`);
 
-    // С thinking модель возвращает текст — ищем JSON-блок внутри
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    const jsonStr = jsonMatch ? jsonMatch[0] : raw;
-
     try {
-        const parsed: unknown = JSON.parse(jsonStr);
+        const parsed: unknown = JSON.parse(raw);
 
         if (
             typeof parsed === 'object' &&
@@ -90,6 +140,7 @@ function parseGeminiResponse(raw: string): GeminiReply {
         console.warn('[warn] Gemini вернул невалидный JSON-формат:', raw);
         return { reply: false };
     } catch {
+        // Фоллбэк: пробуем извлечь текст регуляркой
         // (?:[^"\\]|\\.)* — корректно обрабатывает экранированные кавычки внутри строки
         const textMatch = raw.match(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/);
         if (textMatch) {
@@ -134,8 +185,9 @@ export async function askGemini(
                 config: {
                     systemInstruction: SYSTEM_PROMPT,
                     temperature: GEMINI_TEMPERATURE,
-                    maxOutputTokens: 1024,
-                    thinkingConfig: { thinkingBudget: 512 },
+                    maxOutputTokens: 512,
+                    responseMimeType: 'application/json',
+                    thinkingConfig: { thinkingBudget: 0 },
                 },
             });
 
@@ -147,7 +199,7 @@ export async function askGemini(
                     usage.candidatesTokenCount ?? 0,
                     usage.thoughtsTokenCount ?? 0,
                 );
-                console.log(`[tokens] in:${usage.promptTokenCount} out:${usage.candidatesTokenCount} think:${usage.thoughtsTokenCount}`);
+                console.log(`[tokens] in:${usage.promptTokenCount} out:${usage.candidatesTokenCount} think:${usage.thoughtsTokenCount ?? 0}`);
             }
 
             const text = result.text ?? '';
