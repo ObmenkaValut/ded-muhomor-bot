@@ -18,8 +18,11 @@ export const MAX_MESSAGE_AGE_MS = 2 * 60 * 60 * 1_000; // 2 часа
 
 
 
-/** Модель Gemini */
+/** Модель Gemini для персонажа */
 export const GEMINI_MODEL = 'gemini-2.5-flash';
+
+/** Модель Gemini для модерации (дёшевая, быстрая) */
+export const MODERATION_MODEL = 'gemini-2.5-flash-lite';
 
 /** Температура генерации Gemini */
 export const GEMINI_TEMPERATURE = 0.6;

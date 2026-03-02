@@ -1,7 +1,7 @@
 import { Context } from 'grammy';
 import { REPLY_CHANCE, COOLDOWN_MS, ALLOWED_CHAT_USERNAMES } from '../config/constants';
 import { addMessage, getMessages, BufferedMessage } from '../services/messageBuffer';
-import { askGemini } from '../services/gemini';
+import { askGemini, checkProfanity } from '../services/gemini';
 
 /** Кулдаун: chatId → timestamp последнего ответа бота */
 const lastReplyTime = new Map<number, number>();
@@ -67,6 +67,19 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
     if (ctx.from?.id === botId) return;
 
     const text = ctx.message.text;
+
+    // ИИ-модерация мата (до добавления в буфер)
+    const isProfane = await checkProfanity(text);
+    if (isProfane) {
+        console.log(`[moderation] Найден мат, удаляю сообщение от ${ctx.from?.username || ctx.from?.first_name} в чате ${chatId}`);
+        try {
+            await ctx.deleteMessage();
+        } catch (e) {
+            console.error(`[error] Не удалось удалить сообщение (проверь права админа у бота) в чате ${chatId}:`, e);
+        }
+        return; // Прерываем: дед не увидит это сообщение
+    }
+
     const senderName = getSenderName(ctx);
 
     // Проверяем: это реплай на сообщение бота, упоминание или обращение по имени?

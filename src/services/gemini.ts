@@ -1,5 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
-import { GEMINI_MODEL, GEMINI_TEMPERATURE } from '../config/constants';
+import { GEMINI_MODEL, MODERATION_MODEL, GEMINI_TEMPERATURE } from '../config/constants';
 import { BufferedMessage } from './messageBuffer';
 import { trackTokens } from './tokenCounter';
 
@@ -216,4 +216,36 @@ export async function askGemini(
 
     console.error('[fatal] Все попытки исчерпаны, молчу.');
     return { reply: false };
+}
+
+/**
+ * Проверяет текст на мат через лёгкую модель модерации.
+ * Возвращает true, если текст содержит нецензурную лексику.
+ */
+export async function checkProfanity(text: string): Promise<boolean> {
+    if (!text.trim()) return false;
+    const ai = getGenAI();
+    try {
+        const result = await ai.models.generateContent({
+            model: MODERATION_MODEL,
+            contents: `Проверь этот текст на наличие прямого мата или грубых матерных оскорблений. Ответь строго JSON: {"isProfane": true} или {"isProfane": false}.\nТекст: "${text}"`,
+            config: {
+                temperature: 0.0,
+                maxOutputTokens: 30,
+                responseMimeType: 'application/json',
+            },
+        });
+
+        const usage = result.usageMetadata;
+        if (usage) {
+            trackTokens(usage.promptTokenCount ?? 0, usage.candidatesTokenCount ?? 0, 0);
+        }
+
+        const raw = result.text ?? '';
+        const parsed = JSON.parse(raw);
+        return !!parsed.isProfane;
+    } catch (e) {
+        console.error('[error] Ошибка ИИ-проверки на мат:', e);
+        return false;
+    }
 }
