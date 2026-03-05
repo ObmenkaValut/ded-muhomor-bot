@@ -1,7 +1,6 @@
 import 'dotenv/config';
 import { Bot } from 'grammy';
 import { handleGroupMessage } from './handlers/groupMessage';
-import { startCleanupInterval } from './services/messageBuffer';
 import { logAndResetDaily, logAndResetMonthly } from './services/tokenCounter';
 
 /** Проверяем обязательные переменные окружения */
@@ -60,8 +59,6 @@ async function main(): Promise<void> {
         console.error('Контекст обновления:', err.ctx?.update?.update_id);
     });
 
-    // Запускаем периодическую очистку буферов
-    const cleanupTimer = startCleanupInterval();
 
     // Запускаем ежедневный/месячный отчёт по токенам
     const reportTimer = startTokenReports();
@@ -69,7 +66,6 @@ async function main(): Promise<void> {
     // Graceful shutdown
     const shutdown = () => {
         console.log('[stop] Дед Пенькович ложится спать...');
-        clearInterval(cleanupTimer);
         clearTimeout(reportTimer);
         bot.stop();
     };
