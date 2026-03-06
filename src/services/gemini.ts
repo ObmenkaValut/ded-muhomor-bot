@@ -230,7 +230,7 @@ export async function askGemini(
                 config: {
                     systemInstruction: SYSTEM_PROMPT,
                     temperature: GEMINI_TEMPERATURE,
-                    maxOutputTokens: 512,
+                    maxOutputTokens: 2048,
                     responseMimeType: 'application/json',
                     thinkingConfig: { thinkingBudget: 512 },
                 },
