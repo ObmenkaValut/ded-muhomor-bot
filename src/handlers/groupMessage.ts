@@ -1,7 +1,7 @@
 import { Context } from 'grammy';
 import { REPLY_CHANCE, COOLDOWN_MS, ALLOWED_CHAT_USERNAMES } from '../config/constants';
 import { addMessage, getMessages, BufferedMessage } from '../services/messageBuffer';
-import { askGemini, checkProfanity } from '../services/gemini';
+import { askGemini, checkProfanity, ImageData } from '../services/gemini';
 
 /** Кулдаун: chatId → timestamp последнего ответа бота */
 const lastReplyTime = new Map<number, number>();
@@ -36,11 +36,67 @@ function getSenderName(ctx: Context): string {
 }
 
 /**
- * Главный обработчик текстовых сообщений в группах.
+ * Скачивает фото из Telegram и возвращает base64 + mimeType.
+ * Берёт самое большое фото (последнее в массиве).
+ */
+async function downloadPhoto(ctx: Context): Promise<ImageData | undefined> {
+    const photo = ctx.message?.photo;
+    if (!photo || photo.length === 0) return undefined;
+
+    try {
+        // Берём самое большое фото
+        const largest = photo[photo.length - 1];
+        const file = await ctx.api.getFile(largest.file_id);
+
+        if (!file.file_path) {
+            console.error('[error] Telegram не вернул file_path для фото');
+            return undefined;
+        }
+
+        const botToken = process.env.BOT_TOKEN;
+        const url = `https://api.telegram.org/file/bot${botToken}/${file.file_path}`;
+
+        const response = await fetch(url);
+        if (!response.ok) {
+            console.error(`[error] Не удалось скачать фото: ${response.status}`);
+            return undefined;
+        }
+
+        const buffer = await response.arrayBuffer();
+        const base64 = Buffer.from(buffer).toString('base64');
+
+        // Определяем mimeType по расширению
+        const ext = file.file_path.split('.').pop()?.toLowerCase();
+        const mimeMap: Record<string, string> = {
+            jpg: 'image/jpeg',
+            jpeg: 'image/jpeg',
+            png: 'image/png',
+            webp: 'image/webp',
+            gif: 'image/gif',
+        };
+        const mimeType = mimeMap[ext ?? ''] ?? 'image/jpeg';
+
+        console.log(`[photo] Скачано фото: ${Math.round(buffer.byteLength / 1024)} KB, ${mimeType}`);
+        return { base64, mimeType };
+    } catch (error) {
+        console.error('[error] Ошибка скачивания фото:', error);
+        return undefined;
+    }
+}
+
+/**
+ * Главный обработчик сообщений в группах (текст + фото).
  */
 export async function handleGroupMessage(ctx: Context): Promise<void> {
-    // Только текстовые сообщения
-    if (!ctx.message?.text) return;
+    const msg = ctx.message;
+    if (!msg) return;
+
+    // Определяем текст: обычный текст или подпись к фото
+    const text = msg.text ?? msg.caption ?? '';
+    const hasPhoto = !!msg.photo && msg.photo.length > 0;
+
+    // Пропускаем сообщения без текста и без фото
+    if (!text && !hasPhoto) return;
 
     // Только группы и супергруппы
     const chat = ctx.chat;
@@ -66,32 +122,31 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
     // Не отвечаем на свои сообщения
     if (ctx.from?.id === botId) return;
 
-    const text = ctx.message.text;
-
-    // ИИ-модерация мата (до добавления в буфер)
-    const isProfane = await checkProfanity(text);
-    if (isProfane) {
-        console.log(`[moderation] Найден мат, удаляю сообщение от ${ctx.from?.username || ctx.from?.first_name} в чате ${chatId}`);
-        try {
-            await ctx.deleteMessage();
-        } catch (e) {
-            console.error(`[error] Не удалось удалить сообщение (проверь права админа у бота) в чате ${chatId}:`, e);
+    // ИИ-модерация мата (только если есть текст)
+    if (text) {
+        const isProfane = await checkProfanity(text);
+        if (isProfane) {
+            console.log(`[moderation] Найден мат, удаляю сообщение от ${ctx.from?.username || ctx.from?.first_name} в чате ${chatId}`);
+            try {
+                await ctx.deleteMessage();
+            } catch (e) {
+                console.error(`[error] Не удалось удалить сообщение (проверь права админа у бота) в чате ${chatId}:`, e);
+            }
+            return;
         }
-        return; // Прерываем: дед не увидит это сообщение
     }
 
     const senderName = getSenderName(ctx);
 
     // Проверяем: это реплай на сообщение бота, упоминание или обращение по имени?
-    const isReplyToBot = ctx.message.reply_to_message?.from?.id === botId;
+    const isReplyToBot = msg.reply_to_message?.from?.id === botId;
     const isMention = botUsername
         ? text.toLowerCase().includes(`@${botUsername.toLowerCase()}`)
         : false;
 
     // Ключевые слова, по которым дед понимает, что обращаются к нему
-    // Не считаем триггером, если это реплай на чужое сообщение (не на бота)
-    const isReplyToOther = ctx.message.reply_to_message?.from?.id !== undefined
-        && ctx.message.reply_to_message.from.id !== botId;
+    const isReplyToOther = msg.reply_to_message?.from?.id !== undefined
+        && msg.reply_to_message.from.id !== botId;
     const triggerWords = ['дед', 'мухомор', 'дедуля', 'дедуль', 'дедушка', 'дедуган'];
     const lowerText = text.toLowerCase();
     const isDirectAddress = !isReplyToOther && triggerWords.some((word) => lowerText.includes(word));
@@ -99,7 +154,7 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
     const mustReply = isReplyToBot || isMention || isDirectAddress;
 
     // Определяем, на чьё сообщение это реплай
-    const replyMsg = ctx.message.reply_to_message;
+    const replyMsg = msg.reply_to_message;
     let replyToName: string | undefined;
     if (replyMsg?.from) {
         if (replyMsg.from.id === botId) {
@@ -112,10 +167,11 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
     // Добавляем сообщение в буфер
     const bufferedMessage: BufferedMessage = {
         name: senderName,
-        text,
+        text: text || '[📷 фото]',
         timestamp: Date.now(),
         addressedToBot: mustReply,
         replyTo: replyToName,
+        hasImage: hasPhoto,
     };
     addMessage(chatId, bufferedMessage);
 
@@ -134,6 +190,12 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
         }
     }
 
+    // Скачиваем фото, если оно в последнем сообщении
+    let imageData: ImageData | undefined;
+    if (hasPhoto) {
+        imageData = await downloadPhoto(ctx);
+    }
+
     // Вызываем Gemini, пока показываем "Печатает..."
     const messages = getMessages(chatId);
 
@@ -143,7 +205,7 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
     }, 4_000);
     void ctx.api.sendChatAction(chatId, 'typing').catch(() => { });
 
-    const geminiResult = await askGemini(messages, mustReply);
+    const geminiResult = await askGemini(messages, mustReply, imageData);
 
     if (geminiResult.reply && geminiResult.text) {
         // Проверяем кулдаун ещё раз (мог истечь пока ждали Gemini)
@@ -163,7 +225,7 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
 
         try {
             await ctx.reply(geminiResult.text, {
-                reply_to_message_id: ctx.message.message_id,
+                reply_to_message_id: msg.message_id,
             });
 
             // Добавляем свой ответ в буфер, чтобы Gemini видел полный контекст

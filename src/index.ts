@@ -50,8 +50,9 @@ async function main(): Promise<void> {
 
     const bot = new Bot(process.env.BOT_TOKEN as string);
 
-    // Обработка всех текстовых сообщений
+    // Обработка текстовых сообщений и фото
     bot.on('message:text', handleGroupMessage);
+    bot.on('message:photo', handleGroupMessage);
 
     // Глобальный обработчик ошибок
     bot.catch((err) => {

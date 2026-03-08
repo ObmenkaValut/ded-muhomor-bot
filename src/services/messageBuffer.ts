@@ -12,6 +12,8 @@ export interface BufferedMessage {
     addressedToBot: boolean;
     /** Имя автора сообщения, на которое ответили (если реплай) */
     replyTo?: string;
+    /** Сообщение содержит изображение */
+    hasImage?: boolean;
 }
 
 /** Хранилище последних N сообщений для каждого чата (in-memory) */
