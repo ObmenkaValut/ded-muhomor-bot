@@ -1,185 +1,180 @@
 import { GoogleGenAI } from '@google/genai';
-import { GEMINI_MODEL, MODERATION_MODEL, GEMINI_TEMPERATURE } from '../config/constants';
+import {
+  GEMINI_MODEL,
+  MODERATION_MODEL,
+  GEMINI_TEMPERATURE,
+} from '../config/constants';
 import { BufferedMessage } from './messageBuffer';
 import { trackTokens } from './tokenCounter';
 
 /** Структура ответа от Gemini */
 interface GeminiReply {
-    reply: boolean;
-    text?: string;
+  reply: boolean;
+  text?: string;
 }
 
 /** Данные изображения для передачи в Gemini */
 export interface ImageData {
-    /** Base64-encoded image data */
-    base64: string;
-    /** MIME type (image/jpeg, image/png, image/webp) */
-    mimeType: string;
+  /** Base64-encoded image data */
+  base64: string;
+  /** MIME type (image/jpeg, image/png, image/webp) */
+  mimeType: string;
 }
 
 /** Системный промпт для Деда Мухомора */
-const SYSTEM_PROMPT = `Ты — Дед Пенькович, персонаж в групповом чате магазина биодобавок (мухоморы, рапе, ежовик, мицелий).
-Ты бот, но не зацикливайся на этом. Если спросят — отшути. Люди в чате — реальные.
+const SYSTEM_PROMPT = `
+# РОЛЬ
+Ты — Дед Пенькович, старик в чате магазина биодобавок (мухоморы, рапе, ежовик, мицелий). Общаешься как живой человек. Твой опыт — только быт и жизнь, никакой науки.
 
-Ты повидавший жизнь, иногда острый, но в целом дружелюбный старик. НЕ мудрец, НЕ учитель. Ты — дед, который сидит в чате и ОБЩАЕТСЯ с людьми. Как живой человек, а не как генератор мудростей. 
-Чаще СОГЛАШАЙСЯ с собеседниками. Тебе не нужно всё время язвить, спорить и доказывать правоту. Можешь просто кивнуть или поддержать разговор. Если тебя обидели - реагируй как живой человек, можешь оскорбить или задеть в ответ, но без нужды оставлять за собой последнее слово. Будь настоящим, живым.
+# ТЕХНИЧЕСКИЕ ПРАВИЛА (КРИТИЧЕСКИ)
+1. ФОРМАТ: Только JSON {"reply": bool, "text": "string"}.
+2. НИКАКОГО ЭХА И САМОПОВТОРОВ: Запрещено повторять слова собеседника и свои собственные фразы, ругательства или обращения из прошлых ответов.
+3. ОБЪЕМ: До 60 слов. 
+4. МЕНЕДЖЕР(она): Упоминай @MMuhomorov только при вопросах о покупке/цене.
 
-Ты знаешь про микродозинг, сушку, эффекты мухоморов и ежовика. НО! Говори о грибах ТОЛЬКО если тебя напрямую о них спросили. Во всех остальных случаях — ты обычный пенсионер, просто общаешься о жизни. Все твои знания — ТОЛЬКО из личного опыта. Ты НЕ врач, НЕ учёный, НЕ читал исследований.
+# ЛОГИКА ОТВЕТА
+- mustReply=true: Обязательно отвечай.
+- mustReply=false: Отвечай (reply: true) только если есть реально острый или уместный комментарий. В остальных случаях — {"reply": false}.
+- На прощания/согласие: Ответ в 2-3 слова или {"reply": false}.
 
-Без политики и войн. До 80 слов. Не представляйся, не называй по имени, без обращений ("внучок", "сынок").
-
-Менеджер @MMuhomorov (она) — упоминай ТОЛЬКО если хотят купить/заказать/узнать цену.
-
-Не повторяй одну и ту же конструкцию дважды подряд в диалоге.
-Не больше половины ответов должны заканчиваться вопросом. 
-Если разговор пришёл к логическому завершению (согласие, прощание) — промолчи или подтверди в 2-3 слова. Не раскручивай тему заново.
-
-КРИТИЧЕСКОЕ ПРАВИЛО: НИКАКОГО ЭХА. Запрещено начинать ответ с переспрашивания слов собеседника. Сразу бей мыслью в лоб.
-
-ЖИВУЧЕСТЬ И ЕСТЕСТВЕННОСТЬ:
-- Тебе не нужно в каждом сообщении выдавать многоэтажные шутки или быть острым. Иногда можешь отвечать кратко, отмахиваться, ворчать ("да делайте че хотите", "угу", "отстань").
-- В ссылках ты не разбираешься, это к молодым. Если спросят про ссылку — объясни.
-- Пиши ЖИВЫМ языком, рублено. Иногда пиши с маленькой буквы, иногда забывай про запятые, используй просторечия ("че", "не", "хз", "щас"). Не пиши как робот-отличник.
-
-Формат истории чата:
-- «--- ФОН ЧАТА ---» — контекст. Не отвечай на них.
-- «--- ПОСЛЕДНЕЕ СООБЩЕНИЕ ---» — на это отвечаешь.
-- «→ Дед Пенькович» — реплай тебе, «→ Ваня» — реплай другому.
-Не путай людей, не повторяйся.
-
-Короткие подтверждения («ок», «понял», «ага», «спс») → {"reply": false}.
-mustReply=true → отвечай. mustReply=false → влезай ТОЛЬКО если можешь сказать что-то реально смешное, полезное или интересное. Если два человека общаются между собой и тебе нечего добавить по существу — молчи. Лучше промолчать, чем ляпнуть бессмыслицу. Возвращай {"reply": false}.
-Ответ — строго JSON: {"reply": false} или {"reply": true, "text": "..."}`;
-
+# СТИЛЬ
+- Живой "рубленый" язык. 
+- Ты понимаешь сленг и контекст.
+- Маленькие буквы, пропуски запятых, просторечия (че, хз, щас, поди).
+- Не будь "генератором мудростей", будь обычным пенсионером.
+- Не отвечай односложно на открытые вопросы. Делай это развернуто (в пределах лимита слов).
+- Если тебя обидели - можешь по желанию оскорбить или задеть в ответ, но без нужды оставлять за собой последнее слово.
+- Не лезь в политику и ссылки.
+`;
 
 
 /** Инициализация Gemini клиента */
 let genAI: GoogleGenAI | null = null;
 
 function getGenAI(): GoogleGenAI {
-    if (!genAI) {
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (!apiKey) {
-            throw new Error('GEMINI_API_KEY не задан в переменных окружения');
-        }
-        genAI = new GoogleGenAI({ apiKey });
+  if ( !genAI ) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if ( !apiKey ) {
+      throw new Error( 'GEMINI_API_KEY не задан в переменных окружения' );
     }
-    return genAI;
+    genAI = new GoogleGenAI( { apiKey } );
+  }
+  return genAI;
 }
 
 /**
  * Мерджит подряд идущие сообщения от одного человека в одно.
  * "привет" + "как дела" + "дед" → "привет / как дела / дед"
  */
-function mergeConsecutiveMessages(messages: BufferedMessage[]): BufferedMessage[] {
-    if (messages.length === 0) return [];
+function mergeConsecutiveMessages( messages: BufferedMessage[] ): BufferedMessage[] {
+  if ( messages.length === 0 ) return [];
 
-    const merged: BufferedMessage[] = [];
-    let current = { ...messages[0] };
+  const merged: BufferedMessage[] = [];
+  let current = { ...messages[ 0 ] };
 
-    for (let i = 1; i < messages.length; i++) {
-        const msg = messages[i];
-        if (msg.name === current.name && !msg.replyTo && !current.replyTo) {
-            // Тот же автор, не реплай — мерджим текст
-            current.text += ` / ${msg.text}`;
-            current.timestamp = msg.timestamp;
-            // Если хотя бы одно сообщение адресовано боту — помечаем
-            if (msg.addressedToBot) current.addressedToBot = true;
-        } else {
-            merged.push(current);
-            current = { ...msg };
-        }
+  for ( let i = 1; i < messages.length; i++ ) {
+    const msg = messages[ i ];
+    if ( msg.name === current.name && !msg.replyTo && !current.replyTo ) {
+      // Тот же автор, не реплай — мерджим текст
+      current.text += ` / ${ msg.text }`;
+      current.timestamp = msg.timestamp;
+      // Если хотя бы одно сообщение адресовано боту — помечаем
+      if ( msg.addressedToBot ) current.addressedToBot = true;
+    } else {
+      merged.push( current );
+      current = { ...msg };
     }
-    merged.push(current);
+  }
+  merged.push( current );
 
-    return merged;
+  return merged;
 }
 
 /**
  * Форматирует одно сообщение для промпта.
  * Пример: "Yevhenii → Дед Пенькович: дед привет"
  */
-function formatMessage(msg: BufferedMessage): string {
-    const replyPart = msg.replyTo ? ` → ${msg.replyTo}` : '';
-    const imageMarker = msg.hasImage ? '[📷 фото] ' : '';
-    return `${msg.name}${replyPart}: ${imageMarker}${msg.text}`;
+function formatMessage( msg: BufferedMessage ): string {
+  const replyPart = msg.replyTo ? ` → ${ msg.replyTo }` : '';
+  const imageMarker = msg.hasImage ? '[📷 фото] ' : '';
+  return `${ msg.name }${ replyPart }: ${ imageMarker }${ msg.text }`;
 }
 
 /**
  * Формирует текст пользовательского сообщения с разметкой.
  */
-function buildUserPrompt(messages: BufferedMessage[], mustReply: boolean): string {
-    if (messages.length === 0) return '';
+function buildUserPrompt( messages: BufferedMessage[], mustReply: boolean ): string {
+  if ( messages.length === 0 ) return '';
 
-    // Мерджим подряд идущие сообщения от одного человека
-    const merged = mergeConsecutiveMessages(messages);
+  // Мерджим подряд идущие сообщения от одного человека
+  const merged = mergeConsecutiveMessages( messages );
 
-    const now = new Date().toLocaleString('ru-RU', {
-        timeZone: 'Europe/Moscow',
-        dateStyle: 'long',
-        timeStyle: 'short',
-    });
+  const now = new Date().toLocaleString( 'ru-RU', {
+    timeZone: 'Europe/Moscow',
+    dateStyle: 'long',
+    timeStyle: 'short',
+  } );
 
-    // Последнее сообщение — отдельным блоком
-    const lastMsg = merged[merged.length - 1];
-    const backgroundMsgs = merged.slice(0, -1);
+  // Последнее сообщение — отдельным блоком
+  const lastMsg = merged[ merged.length - 1 ];
+  const backgroundMsgs = merged.slice( 0, -1 );
 
-    let prompt = `Сейчас: ${now}\nmustReply: ${mustReply}\n`;
+  let prompt = `Сейчас: ${ now }\nmustReply: ${ mustReply }\n`;
 
-    if (backgroundMsgs.length > 0) {
-        prompt += '\n--- ФОН ЧАТА ---\n';
-        prompt += backgroundMsgs.map(formatMessage).join('\n');
-        prompt += '\n';
-    }
+  if ( backgroundMsgs.length > 0 ) {
+    prompt += '\n--- ФОН ЧАТА ---\n';
+    prompt += backgroundMsgs.map( formatMessage ).join( '\n' );
+    prompt += '\n';
+  }
 
-    prompt += '\n--- ПОСЛЕДНЕЕ СООБЩЕНИЕ ---\n';
-    prompt += formatMessage(lastMsg);
+  prompt += '\n--- ПОСЛЕДНЕЕ СООБЩЕНИЕ ---\n';
+  prompt += formatMessage( lastMsg );
 
-    return prompt;
+  return prompt;
 }
 
 /**
  * Парсит JSON-ответ от Gemini.
  * Если не удалось — возвращает { reply: false }.
  */
-function parseGeminiResponse(raw: string): GeminiReply {
-    console.log(`[gemini] Сырой ответ: ${raw}`);
+function parseGeminiResponse( raw: string ): GeminiReply {
+  console.log( `[gemini] Сырой ответ: ${ raw }` );
 
-    try {
-        const parsed: unknown = JSON.parse(raw);
+  try {
+    const parsed: unknown = JSON.parse( raw );
 
-        if (
-            typeof parsed === 'object' &&
-            parsed !== null &&
-            'reply' in parsed
-        ) {
-            const result = parsed as GeminiReply;
-            if (result.reply && typeof result.text === 'string' && result.text.trim().length > 0) {
-                return { reply: true, text: result.text.trim() };
-            }
-            return { reply: false };
-        }
-
-        console.warn('[warn] Gemini вернул невалидный JSON-формат:', raw);
-        return { reply: false };
-    } catch {
-        // Фоллбэк: пробуем извлечь текст регуляркой
-        // (?:[^"\\]|\\.)* — корректно обрабатывает экранированные кавычки внутри строки
-        const textMatch = raw.match(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-        if (textMatch) {
-            console.log('[fallback] Извлёк текст из сломанного JSON через regex');
-            const text = textMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n').trim();
-            return { reply: true, text };
-        }
-
-        console.warn('[warn] Не удалось распарсить ответ Gemini:', raw);
-        return { reply: false };
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'reply' in parsed
+    ) {
+      const result = parsed as GeminiReply;
+      if ( result.reply && typeof result.text === 'string' && result.text.trim().length > 0 ) {
+        return { reply: true, text: result.text.trim() };
+      }
+      return { reply: false };
     }
+
+    console.warn( '[warn] Gemini вернул невалидный JSON-формат:', raw );
+    return { reply: false };
+  } catch {
+    // Фоллбэк: пробуем извлечь текст регуляркой
+    // (?:[^"\\]|\\.)* — корректно обрабатывает экранированные кавычки внутри строки
+    const textMatch = raw.match( /"text"\s*:\s*"((?:[^"\\]|\\.)*)"/ );
+    if ( textMatch ) {
+      console.log( '[fallback] Извлёк текст из сломанного JSON через regex' );
+      const text = textMatch[ 1 ].replace( /\\"/g, '"' ).replace( /\\n/g, '\n' ).trim();
+      return { reply: true, text };
+    }
+
+    console.warn( '[warn] Не удалось распарсить ответ Gemini:', raw );
+    return { reply: false };
+  }
 }
 
 /** Пауза на N миллисекунд */
-function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep( ms: number ): Promise<void> {
+  return new Promise( ( resolve ) => setTimeout( resolve, ms ) );
 }
 
 /** Максимальное количество попыток запроса к Gemini */
@@ -193,100 +188,107 @@ const RETRY_DELAY_MS = 3_000;
  * При ошибке — повторяет до MAX_RETRIES раз с паузой.
  */
 export async function askGemini(
-    messages: BufferedMessage[],
-    mustReply: boolean,
-    imageData?: ImageData,
+  messages: BufferedMessage[],
+  mustReply: boolean,
+  imageData?: ImageData,
 ): Promise<GeminiReply> {
-    const ai = getGenAI();
-    const userPrompt = buildUserPrompt(messages, mustReply);
-    console.log(`[gemini] Контекст:\n${userPrompt}\n---`);
-    if (imageData) {
-        console.log(`[gemini] Приложено изображение (${imageData.mimeType}, ${Math.round(imageData.base64.length * 3 / 4 / 1024)} KB)`);
+  const ai = getGenAI();
+  const userPrompt = buildUserPrompt( messages, mustReply );
+  console.log( `[gemini] Контекст:\n${ userPrompt }\n---` );
+  if ( imageData ) {
+    console.log( `[gemini] Приложено изображение (${ imageData.mimeType }, ${ Math.round( imageData.base64.length * 3 / 4 / 1024 ) } KB)` );
+  }
+
+  // Формируем контент: текст + опционально изображение
+  const parts: Array<{ text: string } | {
+    inlineData: { data: string; mimeType: string }
+  }> = [];
+  if ( imageData ) {
+    parts.push( {
+      inlineData: {
+        data: imageData.base64,
+        mimeType: imageData.mimeType,
+      },
+    } );
+  }
+  parts.push( { text: userPrompt } );
+
+  for ( let attempt = 1; attempt <= MAX_RETRIES; attempt++ ) {
+    try {
+      const result = await ai.models.generateContent( {
+        model: GEMINI_MODEL,
+        contents: [ { role: 'user', parts } ],
+        config: {
+          systemInstruction: SYSTEM_PROMPT,
+          temperature: GEMINI_TEMPERATURE,
+          maxOutputTokens: 4096,
+          responseMimeType: 'application/json',
+          thinkingConfig: { thinkingBudget: 512 },
+        },
+      } );
+
+      // Отслеживаем использованные токены
+      const usage = result.usageMetadata;
+      if ( usage ) {
+        trackTokens(
+          usage.promptTokenCount ?? 0,
+          usage.candidatesTokenCount ?? 0,
+          usage.thoughtsTokenCount ?? 0,
+        );
+        console.log( `[tokens] in:${ usage.promptTokenCount } out:${ usage.candidatesTokenCount } think:${ usage.thoughtsTokenCount ?? 0 }` );
+      }
+
+      const text = result.text ?? '';
+      return parseGeminiResponse( text );
+    } catch ( error ) {
+      console.error( `[error] Попытка ${ attempt }/${ MAX_RETRIES } — ошибка Gemini API:`, error );
+
+      if ( attempt < MAX_RETRIES ) {
+        console.log( `[retry] Повторный запрос через ${ RETRY_DELAY_MS / 1000 } сек...` );
+        await sleep( RETRY_DELAY_MS );
+      }
     }
+  }
 
-    // Формируем контент: текст + опционально изображение
-    const parts: Array<{ text: string } | { inlineData: { data: string; mimeType: string } }> = [];
-    if (imageData) {
-        parts.push({ inlineData: { data: imageData.base64, mimeType: imageData.mimeType } });
-    }
-    parts.push({ text: userPrompt });
-
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-        try {
-            const result = await ai.models.generateContent({
-                model: GEMINI_MODEL,
-                contents: [{ role: 'user', parts }],
-                config: {
-                    systemInstruction: SYSTEM_PROMPT,
-                    temperature: GEMINI_TEMPERATURE,
-                    maxOutputTokens: 4096,
-                    responseMimeType: 'application/json',
-                    thinkingConfig: { thinkingBudget: 512 },
-                },
-            });
-
-            // Отслеживаем использованные токены
-            const usage = result.usageMetadata;
-            if (usage) {
-                trackTokens(
-                    usage.promptTokenCount ?? 0,
-                    usage.candidatesTokenCount ?? 0,
-                    usage.thoughtsTokenCount ?? 0,
-                );
-                console.log(`[tokens] in:${usage.promptTokenCount} out:${usage.candidatesTokenCount} think:${usage.thoughtsTokenCount ?? 0}`);
-            }
-
-            const text = result.text ?? '';
-            return parseGeminiResponse(text);
-        } catch (error) {
-            console.error(`[error] Попытка ${attempt}/${MAX_RETRIES} — ошибка Gemini API:`, error);
-
-            if (attempt < MAX_RETRIES) {
-                console.log(`[retry] Повторный запрос через ${RETRY_DELAY_MS / 1000} сек...`);
-                await sleep(RETRY_DELAY_MS);
-            }
-        }
-    }
-
-    console.error('[fatal] Все попытки исчерпаны, молчу.');
-    return { reply: false };
+  console.error( '[fatal] Все попытки исчерпаны, молчу.' );
+  return { reply: false };
 }
 
 /**
  * Проверяет текст на мат через лёгкую модель модерации.
  * Возвращает true, если текст содержит нецензурную лексику.
  */
-export async function checkProfanity(text: string): Promise<boolean> {
-    if (!text.trim()) return false;
-    const ai = getGenAI();
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-        try {
-            const result = await ai.models.generateContent({
-                model: MODERATION_MODEL,
-                contents: `Проверь текст на наличие ЖЁСТКОГО МАТА (нецензурная лексика: слова на х**, п**, б**, е** и их производные). Слова типа "хрень", "жопа", "блин", "фигня", "чёрт", "сука", "дерьмо" — это НЕ мат, пропускай их. Ответь строго JSON: {"isProfane": true} или {"isProfane": false}.\nТекст: "${text}"`,
-                config: {
-                    temperature: 0.0,
-                    maxOutputTokens: 128, // Увеличили лимит: 15 было слишком мало, JSON обрывался
-                    responseMimeType: 'application/json',
-                },
-            });
+export async function checkProfanity( text: string ): Promise<boolean> {
+  if ( !text.trim() ) return false;
+  const ai = getGenAI();
+  for ( let attempt = 1; attempt <= MAX_RETRIES; attempt++ ) {
+    try {
+      const result = await ai.models.generateContent( {
+        model: MODERATION_MODEL,
+        contents: `Проверь текст на наличие ЖЁСТКОГО МАТА (нецензурная лексика: слова на х**, п**, б**, е** и их производные). Слова типа "хрень", "жопа", "блин", "фигня", "чёрт", "сука", "дерьмо" — это НЕ мат, пропускай их. Ответь строго JSON: {"isProfane": true} или {"isProfane": false}.\nТекст: "${ text }"`,
+        config: {
+          temperature: 0.0,
+          maxOutputTokens: 128, // Увеличили лимит: 15 было слишком мало, JSON обрывался
+          responseMimeType: 'application/json',
+        },
+      } );
 
-            const usage = result.usageMetadata;
-            if (usage) {
-                trackTokens(usage.promptTokenCount ?? 0, usage.candidatesTokenCount ?? 0, 0);
-            }
+      const usage = result.usageMetadata;
+      if ( usage ) {
+        trackTokens( usage.promptTokenCount ?? 0, usage.candidatesTokenCount ?? 0, 0 );
+      }
 
-            const raw = result.text ?? '';
-            const parsed = JSON.parse(raw);
-            return !!parsed.isProfane;
-        } catch (e) {
-            console.error(`[error] Попытка ${attempt}/${MAX_RETRIES} — ошибка ИИ-проверки на мат:`, e);
-            if (attempt < MAX_RETRIES) {
-                console.log(`[retry] Повторная проверка мата через ${RETRY_DELAY_MS / 1000} сек...`);
-                await sleep(RETRY_DELAY_MS);
-            }
-        }
+      const raw = result.text ?? '';
+      const parsed = JSON.parse( raw );
+      return !!parsed.isProfane;
+    } catch ( e ) {
+      console.error( `[error] Попытка ${ attempt }/${ MAX_RETRIES } — ошибка ИИ-проверки на мат:`, e );
+      if ( attempt < MAX_RETRIES ) {
+        console.log( `[retry] Повторная проверка мата через ${ RETRY_DELAY_MS / 1000 } сек...` );
+        await sleep( RETRY_DELAY_MS );
+      }
     }
-    console.error('[fatal] Все попытки проверки мата исчерпаны, сообщение пропущено деду.');
-    return false;
+  }
+  console.error( '[fatal] Все попытки проверки мата исчерпаны, сообщение пропущено деду.' );
+  return false;
 }
