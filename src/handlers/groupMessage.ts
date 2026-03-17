@@ -1,7 +1,7 @@
-import { Context } from 'grammy';
+import { Context, InlineKeyboard } from 'grammy';
 import { REPLY_CHANCE, COOLDOWN_MS, ALLOWED_CHAT_USERNAMES } from '../config/constants';
 import { addMessage, getMessages, BufferedMessage } from '../services/messageBuffer';
-import { askGemini, checkProfanity, ImageData } from '../services/gemini';
+import { askGemini, checkProfanity, checkPurchaseIntent, ImageData } from '../services/gemini';
 
 /** Кулдаун: chatId → timestamp последнего ответа бота */
 const lastReplyTime = new Map<number, number>();
@@ -133,6 +133,42 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
                 console.error(`[error] Не удалось удалить сообщение (проверь права админа у бота) в чате ${chatId}:`, e);
             }
             return;
+        }
+
+        // ИИ-проверка намерений покупки (ассортимент, цена, купить)
+        // Генерируем временный буфер, чтобы модель видела контекст + текущее сообщение
+        const tempBuffer = [...getMessages(chatId), {
+            name: ctx.from?.username || ctx.from?.first_name || 'Аноним',
+            text: text,
+            timestamp: Date.now(),
+            addressedToBot: false
+        }];
+
+        const isPurchase = await checkPurchaseIntent(tempBuffer);
+        if (isPurchase) {
+            console.log(`[intent] Обнаружен вопрос о покупке от ${ctx.from?.username || ctx.from?.first_name} в чате ${chatId}`);
+
+            const replyText = `Если хочешь что-то купить или узнать про ассортимент — заглядывай в бот: @CyberpusherBot\n\nА если он вдруг начнет глючить, пиши нашей @MMuhomorov`;
+            const keyboard = new InlineKeyboard()
+                .url('Перейти в магазин →', 'https://t.me/CyberpusherBot');
+
+            try {
+                await ctx.reply(replyText, {
+                    reply_to_message_id: msg.message_id,
+                    reply_markup: keyboard,
+                });
+
+                // Добавляем автоматический ответ в буфер, чтобы Дед видел, что мы уже ответили 
+                addMessage(chatId, {
+                    name: 'Дед Пенькович',
+                    text: replyText,
+                    timestamp: Date.now(),
+                    addressedToBot: false,
+                });
+            } catch (e) {
+                console.error(`[error] Ошибка отправки сообщения о покупке в чат ${chatId}:`, e);
+            }
+            return; // Завершаем обработку, чтобы не дергать Деда
         }
     }
 

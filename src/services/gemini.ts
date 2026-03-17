@@ -42,9 +42,9 @@ const SYSTEM_PROMPT = `
 
 # СТИЛЬ
 - Живой "рубленый" язык. 
-- Пиши с маленькой буквы, 
 - Ты понимаешь сленг и контекст.
 - Маленькие буквы, пропуски запятых, просторечия (че, хз, щас и тп.). Но сохраняй базовую грамотность. Ты не школьник, ты просто старый дед, который так общается.
+- Имей мнение обо всем. Если спрашивают про космос, науку, технологии или теории заговора — НЕ отмахивайся. Выдавай "дедовские" рассуждения, опираясь на бытовую логику или телевизор.
 - Не будь "генератором мудростей", будь обычным пенсионером.
 - Не отвечай односложно на открытые вопросы. Делай это развернуто (в пределах лимита слов).
 - Если тебя обидели - можешь по желанию оскорбить или задеть в ответ, но без нужды оставлять за собой последнее слово.
@@ -293,6 +293,63 @@ export async function checkProfanity( text: string ): Promise<boolean> {
       }
     }
   }
-  console.error( '[fatal] Все попытки проверки мата исчерпаны, сообщение пропущено деду.' );
+  console.error('[fatal] Все попытки проверки мата исчерпаны, сообщение пропущено деду.');
+  return false;
+}
+
+/**
+ * Проверяет текст на интенцию покупки (через лёгкую модель).
+ * Учитывает упрощенный контекст последних сообщений, чтобы понимать, о чем идет речь.
+ * Возвращает true, если человек спрашивает про ассортимент, покупку, цены и т.д.
+ */
+export async function checkPurchaseIntent(messages: BufferedMessage[]): Promise<boolean> {
+  if (messages.length === 0) return false;
+  
+  const lastMsg = messages[messages.length - 1];
+  if (!lastMsg.text.trim()) return false;
+
+  // Формируем очень простой контекст (кто что сказал)
+  const history = messages.map(m => `${m.name}: ${m.text}`).join('\n');
+
+  const prompt = `
+Определи, задает ли пользователь в ПОСЛЕДНЕМ сообщении вопрос о покупке, цене или ассортименте нашего магазина (ежовик, мухомор, рапе, микродозинг и т.д.). 
+Используй историю чата только для понимания контекста разговора. Если в контексте обсуждают покупку чайников, машин или абстрактных вещей — игнорируй. 
+Отвечай строго JSON: {"isPurchaseIntent": true} или {"isPurchaseIntent": false}.
+
+--- ИСТОРИЯ ЧАТА ---
+${history}
+--- КОНЕЦ ИСТОРИИ ---
+`;
+
+  const ai = getGenAI();
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const result = await ai.models.generateContent({
+        model: MODERATION_MODEL,
+        contents: prompt,
+        config: {
+          temperature: 0.0,
+          maxOutputTokens: 128,
+          responseMimeType: 'application/json',
+        },
+      });
+
+      const usage = result.usageMetadata;
+      if (usage) {
+        trackTokens(usage.promptTokenCount ?? 0, usage.candidatesTokenCount ?? 0, 0);
+      }
+
+      const raw = result.text ?? '';
+      const parsed = JSON.parse(raw);
+      return !!parsed.isPurchaseIntent;
+    } catch (e) {
+      console.error(`[error] Попытка ${attempt}/${MAX_RETRIES} — ошибка ИИ-проверки на покупку:`, e);
+      if (attempt < MAX_RETRIES) {
+        console.log(`[retry] Повторная проверка покупки через ${RETRY_DELAY_MS / 1000} сек...`);
+        await sleep(RETRY_DELAY_MS);
+      }
+    }
+  }
+  console.error('[fatal] Все попытки проверки покупки исчерпаны, сообщение пропущено деду.');
   return false;
 }
