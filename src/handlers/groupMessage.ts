@@ -251,8 +251,8 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
             return;
         }
 
-        // Задержка 3–6 сек для эмуляции живого человека
-        const delay = 3_000 + Math.random() * 3_000;
+        // Задержка 10–20 сек (в среднем 15) для эмуляции живого человека
+        const delay = 10_000 + Math.random() * 10_000;
         await new Promise((resolve) => setTimeout(resolve, delay));
         clearInterval(typingInterval);
 
