@@ -148,9 +148,9 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
         if (isPurchase) {
             console.log(`[intent] Обнаружен вопрос о покупке от ${ctx.from?.username || ctx.from?.first_name} в чате ${chatId}`);
 
-            const replyText = `Если хочешь что-то купить или узнать про ассортимент — заглядывай в бот: @herbystore_bot\n\nА если он вдруг начнет глючить, пиши нашей @MMuhomorov`;
+            const replyText = `Если хочешь что-то купить или узнать про ассортимент — заглядывай в бот: @herbyshop_bot\n\nА если он вдруг начнет глючить, пиши нашей @MMuhomorov`;
             const keyboard = new InlineKeyboard()
-                .url('Перейти в магазин →', 'https://t.me/herbystore_bot');
+                .url('Перейти в магазин →', 'https://t.me/herbyshop_bot');
 
             try {
                 await ctx.reply(replyText, {

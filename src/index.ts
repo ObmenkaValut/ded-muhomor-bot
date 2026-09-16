@@ -1,6 +1,8 @@
 import 'dotenv/config';
 import { Bot } from 'grammy';
 import { handleGroupMessage } from './handlers/groupMessage';
+import { handleNewChatMember } from './handlers/newChatMember';
+import { handleServiceMessage } from './handlers/serviceMessage';
 import { logAndResetDaily, logAndResetMonthly } from './services/tokenCounter';
 
 /** Проверяем обязательные переменные окружения */
@@ -54,6 +56,12 @@ async function main(): Promise<void> {
     bot.on('message:text', handleGroupMessage);
     bot.on('message:photo', handleGroupMessage);
 
+    // Приветствие новых участников
+    bot.on('chat_member', handleNewChatMember);
+
+    // Удаление служебных сообщений о вступлении/выходе
+    bot.on(['message:new_chat_members', 'message:left_chat_member'], handleServiceMessage);
+
     // Глобальный обработчик ошибок
     bot.catch((err) => {
         console.error('[error] Ошибка бота:', err.error);
@@ -77,7 +85,8 @@ async function main(): Promise<void> {
     // Запуск long polling
     console.log('[start] Дед Пенькович проснулся!');
     await bot.start({
-        allowed_updates: [],
+        // chat_member Telegram присылает только если запросить явно
+        allowed_updates: ['message', 'chat_member'],
         drop_pending_updates: true,
     });
 }
