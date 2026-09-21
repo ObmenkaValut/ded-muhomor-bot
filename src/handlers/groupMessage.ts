@@ -137,39 +137,39 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
 
         // ИИ-проверка намерений покупки (ассортимент, цена, купить)
         // Генерируем временный буфер, чтобы модель видела контекст + текущее сообщение
-        const tempBuffer = [...getMessages(chatId), {
-            name: ctx.from?.username || ctx.from?.first_name || 'Аноним',
-            text: text,
-            timestamp: Date.now(),
-            addressedToBot: false
-        }];
+        // const tempBuffer = [...getMessages(chatId), {
+        //     name: ctx.from?.username || ctx.from?.first_name || 'Аноним',
+        //     text: text,
+        //     timestamp: Date.now(),
+        //     addressedToBot: false
+        // }];
 
-        const isPurchase = await checkPurchaseIntent(tempBuffer);
-        if (isPurchase) {
-            console.log(`[intent] Обнаружен вопрос о покупке от ${ctx.from?.username || ctx.from?.first_name} в чате ${chatId}`);
-
-            const replyText = `Если хочешь что-то купить или узнать про ассортимент — заглядывай в бот: @herbyshop_bot\n\nА если он вдруг начнет глючить, пиши нашей @MMuhomorov`;
-            const keyboard = new InlineKeyboard()
-                .url('Перейти в магазин →', 'https://t.me/herbyshop_bot');
-
-            try {
-                await ctx.reply(replyText, {
-                    reply_to_message_id: msg.message_id,
-                    reply_markup: keyboard,
-                });
-
-                // Добавляем автоматический ответ в буфер, чтобы Дед видел, что мы уже ответили 
-                addMessage(chatId, {
-                    name: 'Дед Пенькович',
-                    text: replyText,
-                    timestamp: Date.now(),
-                    addressedToBot: false,
-                });
-            } catch (e) {
-                console.error(`[error] Ошибка отправки сообщения о покупке в чат ${chatId}:`, e);
-            }
-            return; // Завершаем обработку, чтобы не дергать Деда
-        }
+        // const isPurchase = await checkPurchaseIntent(tempBuffer);
+        // if (isPurchase) {
+        //     console.log(`[intent] Обнаружен вопрос о покупке от ${ctx.from?.username || ctx.from?.first_name} в чате ${chatId}`);
+        //
+        //     const replyText = `Если хочешь что-то купить или узнать про ассортимент — заглядывай в бот: @herbyshop_bot\n\nА если он вдруг начнет глючить, пиши нашей @MMuhomorov`;
+        //     const keyboard = new InlineKeyboard()
+        //         .url('Перейти в магазин →', 'https://t.me/herbyshop_bot');
+        //
+        //     try {
+        //         await ctx.reply(replyText, {
+        //             reply_to_message_id: msg.message_id,
+        //             reply_markup: keyboard,
+        //         });
+        //
+        //         // Добавляем автоматический ответ в буфер, чтобы Дед видел, что мы уже ответили
+        //         addMessage(chatId, {
+        //             name: 'Дед Пенькович',
+        //             text: replyText,
+        //             timestamp: Date.now(),
+        //             addressedToBot: false,
+        //         });
+        //     } catch (e) {
+        //         console.error(`[error] Ошибка отправки сообщения о покупке в чат ${chatId}:`, e);
+        //     }
+        //     return; // Завершаем обработку, чтобы не дергать Деда
+        // }
     }
 
     const senderName = getSenderName(ctx);
