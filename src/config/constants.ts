@@ -12,6 +12,27 @@ export const COOLDOWN_MS = 30_000;
 /** Через сколько удалять приветствие нового участника (в миллисекундах) */
 export const WELCOME_DELETE_MS = 60_000;
 
+/*
+ * ЗАДЕРЖКА ОТВЕТА ДЕДА
+ * Сейчас: Gemini → пауза «прочитал» (READ_DELAY) → «печатает…» по длине текста (TYPING_*) → отправка.
+ * Ответ готовится в фоне (composeAndSendReply в handlers/groupMessage.ts), бот не блокируется.
+ *
+ * КАК БЫЛО ДО ЭТОГО: сразу «печатает…» → Gemini → фиксированная пауза 10–20 сек → отправка,
+ * всё через await прямо в обработчике (на время паузы бот не обрабатывал другие сообщения).
+ * Откатиться: git log --oneline --grep="slower human-like" → git revert <hash>
+ */
+
+/** Пауза «прочитал и подумал» перед ответом деда, без индикатора «печатает» (мс) */
+export const READ_DELAY_MIN_MS = 15_000;
+export const READ_DELAY_MAX_MS = 40_000;
+
+/** Скорость печати деда (символов в секунду) — от неё зависит, сколько горит «печатает…» */
+export const TYPING_CHARS_PER_SEC = 4;
+
+/** Границы времени «печатает…» (мс) */
+export const TYPING_MIN_MS = 4_000;
+export const TYPING_MAX_MS = 30_000;
+
 
 
 

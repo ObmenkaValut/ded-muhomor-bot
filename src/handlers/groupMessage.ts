@@ -1,5 +1,14 @@
 import { Context, InlineKeyboard } from 'grammy';
-import { REPLY_CHANCE, COOLDOWN_MS, ALLOWED_CHAT_USERNAMES } from '../config/constants';
+import {
+    REPLY_CHANCE,
+    COOLDOWN_MS,
+    ALLOWED_CHAT_USERNAMES,
+    READ_DELAY_MIN_MS,
+    READ_DELAY_MAX_MS,
+    TYPING_CHARS_PER_SEC,
+    TYPING_MIN_MS,
+    TYPING_MAX_MS,
+} from '../config/constants';
 import { addMessage, getMessages, BufferedMessage } from '../services/messageBuffer';
 import { askGemini, checkInsult, checkPurchaseIntent, ImageData, ReplyContext } from '../services/gemini';
 import { containsObsceneRoot } from '../services/obsceneFilter';
@@ -20,6 +29,39 @@ function isOnCooldown(chatId: number): boolean {
 /** Обновляет timestamp последнего ответа */
 function updateCooldown(chatId: number): void {
     lastReplyTime.set(chatId, Date.now());
+}
+
+/** Сколько ответов дед сейчас готовит в каждом чате: chatId → количество */
+const pendingReplies = new Map<number, number>();
+
+function isReplyPending(chatId: number): boolean {
+    return (pendingReplies.get(chatId) ?? 0) > 0;
+}
+
+function markReplyPending(chatId: number): void {
+    pendingReplies.set(chatId, (pendingReplies.get(chatId) ?? 0) + 1);
+}
+
+function unmarkReplyPending(chatId: number): void {
+    const left = (pendingReplies.get(chatId) ?? 1) - 1;
+    if (left > 0) pendingReplies.set(chatId, left);
+    else pendingReplies.delete(chatId);
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Случайная пауза «прочитал и подумал» */
+function getReadDelay(): number {
+    return READ_DELAY_MIN_MS + Math.random() * (READ_DELAY_MAX_MS - READ_DELAY_MIN_MS);
+}
+
+/** Сколько дед «печатает» текст: по длине, ±20%, в границах TYPING_MIN_MS..TYPING_MAX_MS */
+function getTypingDelay(text: string): number {
+    const base = (text.length / TYPING_CHARS_PER_SEC) * 1_000;
+    const jittered = base * (0.8 + Math.random() * 0.4);
+    return Math.min(TYPING_MAX_MS, Math.max(TYPING_MIN_MS, jittered));
 }
 
 /**
@@ -239,56 +281,85 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
         }
     }
 
-    // Скачиваем фото, если оно в последнем сообщении
-    let imageData: ImageData | undefined;
-    if (hasPhoto) {
-        imageData = await downloadPhoto(ctx);
+    // Случайную реплику не начинаем, если дед уже пишет ответ в этом чате
+    if (!mustReply && isReplyPending(chatId)) {
+        console.log(`[skip] Молчу (уже пишу ответ) в чате ${chatId}`);
+        return;
     }
 
-    // Вызываем Gemini, пока показываем "Печатает..."
-    const messages = getMessages(chatId);
+    // Ответ готовится в фоне: обработчик сразу возвращается, и бот не блокируется
+    // на время пауз (модерация и остальные сообщения обрабатываются дальше)
+    markReplyPending(chatId);
+    void composeAndSendReply(ctx, chatId, msg.message_id, mustReply, hasPhoto)
+        .catch((error) => console.error(`[error] Ошибка при подготовке ответа в чате ${chatId}:`, error))
+        .finally(() => unmarkReplyPending(chatId));
+}
 
-    // Telegram сбрасывает "Печатает..." через 5 сек — обновляем каждые 4
+/**
+ * Готовит и отправляет ответ деда как живой человек:
+ * Gemini → пауза «прочитал и подумал» → «печатает…» по длине текста → отправка.
+ */
+async function composeAndSendReply(
+    ctx: Context,
+    chatId: number,
+    replyToMessageId: number,
+    mustReply: boolean,
+    hasPhoto: boolean,
+): Promise<void> {
+    // Снимок буфера на момент сообщения — дед отвечает именно на него
+    const messages = [...getMessages(chatId)];
+
+    // Скачиваем фото, если оно в последнем сообщении
+    const imageData: ImageData | undefined = hasPhoto ? await downloadPhoto(ctx) : undefined;
+
+    const geminiResult = await askGemini(messages, mustReply, imageData);
+    if (!geminiResult.reply || !geminiResult.text) {
+        console.log(`[skip] Молчу (Gemini решил) в чате ${chatId}`);
+        return;
+    }
+    const replyText = geminiResult.text;
+
+    const readDelay = getReadDelay();
+    const typingDelay = getTypingDelay(replyText);
+    console.log(`[delay] Читаю ${(readDelay / 1000).toFixed(0)}с, печатаю ${(typingDelay / 1000).toFixed(0)}с в чате ${chatId}`);
+
+    // «Прочитал и подумал» — без индикатора
+    await sleep(readDelay);
+
+    // Проверяем кулдаун ещё раз (за время паузы дед мог ответить кому-то другому)
+    if (!mustReply && isOnCooldown(chatId)) {
+        console.log(`[skip] Молчу (кулдаун после паузы) в чате ${chatId}`);
+        return;
+    }
+
+    // «Печатает…»: Telegram сбрасывает индикатор через 5 сек — обновляем каждые 4
+    void ctx.api.sendChatAction(chatId, 'typing').catch(() => { });
     const typingInterval = setInterval(() => {
         ctx.api.sendChatAction(chatId, 'typing').catch(() => { });
     }, 4_000);
-    void ctx.api.sendChatAction(chatId, 'typing').catch(() => { });
-
-    const geminiResult = await askGemini(messages, mustReply, imageData);
-
-    if (geminiResult.reply && geminiResult.text) {
-        // Проверяем кулдаун ещё раз (мог истечь пока ждали Gemini)
-        if (!mustReply && isOnCooldown(chatId)) {
-            clearInterval(typingInterval);
-            console.log(`[skip] Молчу (кулдаун после Gemini) в чате ${chatId}`);
-            return;
-        }
-
-        // Задержка 10–20 сек (в среднем 15) для эмуляции живого человека
-        const delay = 10_000 + Math.random() * 10_000;
-        await new Promise((resolve) => setTimeout(resolve, delay));
+    try {
+        await sleep(typingDelay);
+    } finally {
         clearInterval(typingInterval);
+    }
 
-        console.log(`[reply] Отвечаю в чате ${chatId}: "${geminiResult.text}"`);
-        updateCooldown(chatId);
+    console.log(`[reply] Отвечаю в чате ${chatId}: "${replyText}"`);
+    updateCooldown(chatId);
 
-        try {
-            await ctx.reply(geminiResult.text, {
-                reply_to_message_id: msg.message_id,
-            });
+    try {
+        await ctx.api.sendMessage(chatId, replyText, {
+            // Если сообщение успели удалить — отправим просто в чат, без реплая
+            reply_parameters: { message_id: replyToMessageId, allow_sending_without_reply: true },
+        });
 
-            // Добавляем свой ответ в буфер, чтобы Gemini видел полный контекст
-            addMessage(chatId, {
-                name: 'Дед Пенькович',
-                text: geminiResult.text,
-                timestamp: Date.now(),
-                addressedToBot: false,
-            });
-        } catch (error) {
-            console.error(`[error] Ошибка отправки сообщения в чат ${chatId}:`, error);
-        }
-    } else {
-        clearInterval(typingInterval);
-        console.log(`[skip] Молчу (Gemini решил) в чате ${chatId}`);
+        // Добавляем свой ответ в буфер, чтобы Gemini видел полный контекст
+        addMessage(chatId, {
+            name: 'Дед Пенькович',
+            text: replyText,
+            timestamp: Date.now(),
+            addressedToBot: false,
+        });
+    } catch (error) {
+        console.error(`[error] Ошибка отправки сообщения в чат ${chatId}:`, error);
     }
 }
