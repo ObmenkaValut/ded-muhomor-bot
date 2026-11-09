@@ -1,7 +1,8 @@
 import { Context, InlineKeyboard } from 'grammy';
 import { REPLY_CHANCE, COOLDOWN_MS, ALLOWED_CHAT_USERNAMES } from '../config/constants';
 import { addMessage, getMessages, BufferedMessage } from '../services/messageBuffer';
-import { askGemini, checkProfanity, checkPurchaseIntent, ImageData } from '../services/gemini';
+import { askGemini, checkInsult, checkPurchaseIntent, ImageData, ReplyContext } from '../services/gemini';
+import { containsObsceneRoot } from '../services/obsceneFilter';
 
 /** Кулдаун: chatId → timestamp последнего ответа бота */
 const lastReplyTime = new Map<number, number>();
@@ -122,11 +123,21 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
     // Не отвечаем на свои сообщения
     if (ctx.from?.id === botId) return;
 
-    // ИИ-модерация мата (только если есть текст)
-    if (text) {
-        const isProfane = await checkProfanity(text);
-        if (isProfane) {
-            console.log(`[moderation] Найден мат, удаляю сообщение от ${ctx.from?.username || ctx.from?.first_name} в чате ${chatId}`);
+    // Модерация: мат разрешён, удаляем только оскорбления с матом.
+    // Сначала дешёвый regex-фильтр, к модели идём только если мат найден.
+    if (text && containsObsceneRoot(text)) {
+        const replied = msg.reply_to_message;
+        const reply: ReplyContext | undefined = replied?.from
+            ? {
+                toBot: replied.from.id === botId,
+                name: replied.from.first_name || replied.from.username,
+                text: (replied.text ?? replied.caption ?? '').slice(0, 200) || undefined,
+            }
+            : undefined;
+
+        const isInsult = await checkInsult(text, reply);
+        if (isInsult) {
+            console.log(`[moderation] Оскорбление с матом, удаляю сообщение от ${ctx.from?.username || ctx.from?.first_name} в чате ${chatId}`);
             try {
                 await ctx.deleteMessage();
             } catch (e) {
@@ -134,7 +145,9 @@ export async function handleGroupMessage(ctx: Context): Promise<void> {
             }
             return;
         }
+    }
 
+    if (text) {
         // ИИ-проверка намерений покупки (ассортимент, цена, купить)
         // Генерируем временный буфер, чтобы модель видела контекст + текущее сообщение
         // const tempBuffer = [...getMessages(chatId), {
